@@ -1,0 +1,252 @@
+// Network graph view: force-directed layout of the levelling network
+function NetworkView({ state, setState, t }) {
+  const { data } = state;
+
+  // Build nodes + edges from all runs
+  const { nodes, edges, meta } = useMemo(() => {
+    const nodeMap = new Map();
+    const edgeList = [];
+    const addNode = (code, runIdx) => {
+      if (!nodeMap.has(code)) {
+        nodeMap.set(code, { code, runs: new Set(), isBench: data.benchmarks.some(b => b.code === code) });
+      }
+      nodeMap.get(code).runs.add(runIdx);
+    };
+    data.runs.forEach(r => {
+      r.stations.forEach(s => {
+        addNode(s.from, r.index);
+        addNode(s.to, r.index);
+        edgeList.push({ a: s.from, b: s.to, run: r.index, runId: r.id, dist: s.Db + s.Df });
+      });
+    });
+    const ns = Array.from(nodeMap.values()).map(n => ({ ...n, runs: Array.from(n.runs), shared: n.runs.size > 1 }));
+    return { nodes: ns, edges: edgeList, meta: { nCount: ns.length, eCount: edgeList.length, sharedCount: ns.filter(n => n.shared).length } };
+  }, [data]);
+
+  // Force-directed layout (simple, run once)
+  const chartRef = useRef(null);
+  const [size, setSize] = useState({ w: 1200, h: 700 });
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const ro = new ResizeObserver(entries => {
+      const r = entries[0].contentRect;
+      setSize({ w: Math.max(500, r.width), h: Math.max(300, r.height) });
+    });
+    ro.observe(chartRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const positions = useMemo(() => {
+    const W = 1600, H = 900;
+    const pos = {};
+    // seed: golden-angle spiral
+    const phi = Math.PI * (3 - Math.sqrt(5));
+    nodes.forEach((n, i) => {
+      const r = 40 + Math.sqrt(i) * 28;
+      const a = i * phi;
+      pos[n.code] = { x: W / 2 + Math.cos(a) * r, y: H / 2 + Math.sin(a) * r, code: n.code };
+    });
+    // Build adjacency
+    const adj = new Map();
+    edges.forEach(e => {
+      if (!adj.has(e.a)) adj.set(e.a, []);
+      if (!adj.has(e.b)) adj.set(e.b, []);
+      adj.get(e.a).push(e.b);
+      adj.get(e.b).push(e.a);
+    });
+    // Simulation
+    const ITER = 220;
+    const k = 55; // ideal edge length
+    for (let it = 0; it < ITER; it++) {
+      const t = 1 - it / ITER;
+      // repulsion
+      for (const a of nodes) {
+        let fx = 0, fy = 0;
+        for (const b of nodes) {
+          if (a === b) continue;
+          const dx = pos[a.code].x - pos[b.code].x;
+          const dy = pos[a.code].y - pos[b.code].y;
+          const d2 = dx * dx + dy * dy + 0.01;
+          const f = (k * k) / d2;
+          fx += dx * f * 0.006;
+          fy += dy * f * 0.006;
+        }
+        pos[a.code]._fx = fx;
+        pos[a.code]._fy = fy;
+      }
+      // attraction
+      for (const e of edges) {
+        const pa = pos[e.a], pb = pos[e.b];
+        const dx = pb.x - pa.x, dy = pb.y - pa.y;
+        const d = Math.sqrt(dx * dx + dy * dy) + 0.01;
+        const f = (d * d) / (k * 18);
+        const ux = dx / d, uy = dy / d;
+        pa._fx += ux * f; pa._fy += uy * f;
+        pb._fx -= ux * f; pb._fy -= uy * f;
+      }
+      // weak centering
+      for (const n of nodes) {
+        const p = pos[n.code];
+        p._fx += (W / 2 - p.x) * 0.002;
+        p._fy += (H / 2 - p.y) * 0.002;
+      }
+      // apply
+      const step = 8 * (0.2 + t);
+      for (const n of nodes) {
+        const p = pos[n.code];
+        const mag = Math.sqrt(p._fx * p._fx + p._fy * p._fy) + 0.01;
+        const dx = (p._fx / mag) * Math.min(mag, step);
+        const dy = (p._fy / mag) * Math.min(mag, step);
+        p.x += dx; p.y += dy;
+        p.x = Math.max(30, Math.min(W - 30, p.x));
+        p.y = Math.max(30, Math.min(H - 30, p.y));
+      }
+    }
+    // normalize into viewBox with padding
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    nodes.forEach(n => {
+      const p = pos[n.code];
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    });
+    const padv = 60;
+    const sx = (W - 2 * padv) / (maxX - minX || 1);
+    const sy = (H - 2 * padv) / (maxY - minY || 1);
+    const s = Math.min(sx, sy);
+    nodes.forEach(n => {
+      const p = pos[n.code];
+      p.x = padv + (p.x - minX) * s;
+      p.y = padv + (p.y - minY) * s;
+    });
+    return { pos, W, H };
+  }, [nodes, edges]);
+
+  const [hover, setHover] = useState(null);
+  const [highlightRun, setHighlightRun] = useState(null);
+  const systemColors = { 1: 'var(--accent)', 2: 'var(--accent-2)', 3: 'var(--violet)' };
+  const runOf = (i) => data.runs.find(r => r.index === i);
+
+  return (
+    <div className="split-h" style={{ gridTemplateColumns: state.showLeft ? '260px 1fr 300px' : (state.showRight ? '1fr 300px' : '1fr'), gap: 1, background: 'var(--line)' }}>
+      {state.showLeft && (
+        <div style={{ background: 'var(--bg)', overflow: 'auto' }}>
+          <div className="panel-head" style={{ background: 'var(--bg-2)' }}><span className="title">{t('systems')}</span></div>
+          {data.runs.map(r => {
+            const on = highlightRun === r.index;
+            return (
+              <div key={r.id} className={`listitem ${on ? 'active' : ''}`} onClick={() => setHighlightRun(on ? null : r.index)}>
+                <span style={{ width: 10, height: 10, background: systemColors[r.index], borderRadius: 1, flexShrink: 0 }} />
+                <span className="mono" style={{ color: 'var(--ink-3)', fontSize: 10.5 }}>{String(r.index).padStart(2, '0')}</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.lineId}</span>
+                <span className="chip" style={{ fontSize: 9.5 }}>{r.stationCount}</span>
+              </div>
+            );
+          })}
+          <div className="panel-head" style={{ background: 'var(--bg-2)', marginTop: 12 }}><span className="title">{t('benchmarks')}</span></div>
+          {data.benchmarks.map(b => (
+            <div key={b.code} className="listitem">
+              <span style={{ color: 'var(--accent)' }}>◆</span>
+              <span className="mono" style={{ flex: 1 }}>{b.code}</span>
+              <span className="mono muted" style={{ fontSize: 10.5 }}>{fmt(b.height, 4)} m</span>
+            </div>
+          ))}
+          <div className="panel-head" style={{ background: 'var(--bg-2)', marginTop: 12 }}><span className="title">{t('sharedPts')}</span></div>
+          {data.sharedPoints.slice(0, 18).map(p => (
+            <div key={p.code} className="listitem">
+              <span className="mono" style={{ flex: 1 }}>{p.code}</span>
+              <span style={{ display: 'flex', gap: 3 }}>
+                {p.runs.map(i => <span key={i} style={{ width: 7, height: 7, background: systemColors[i], borderRadius: 1 }} />)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ background: 'var(--bg)', display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
+        <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)', background: 'var(--bg-2)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div>
+            <div className="t-label">{t('networkTitle')}</div>
+            <div style={{ fontSize: 13, fontWeight: 500, marginTop: 2, fontFamily: 'var(--mono)' }}>{meta.nCount} {t('nodes')} · {meta.eCount} {t('edges')} · {data.runs.length} {t('components')}</div>
+          </div>
+          <span style={{ flex: 1 }} />
+          {[1, 2, 3].map(i => (
+            <div key={i} className="chip" onClick={() => setHighlightRun(highlightRun === i ? null : i)} style={{ cursor: 'pointer', opacity: highlightRun && highlightRun !== i ? 0.4 : 1 }}>
+              <span style={{ width: 8, height: 8, background: systemColors[i], borderRadius: 1 }} /> {runOf(i)?.lineId}
+            </div>
+          ))}
+        </div>
+        <div ref={chartRef} className="graphpaper" style={{ flex: 1, minHeight: 0, position: 'relative', cursor: 'crosshair' }}>
+          <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
+          <svg className="chart" viewBox={`0 0 ${positions.W} ${positions.H}`} preserveAspectRatio="xMidYMid meet">
+            {/* edges */}
+            {edges.map((e, i) => {
+              const pa = positions.pos[e.a], pb = positions.pos[e.b];
+              const faded = highlightRun && e.run !== highlightRun;
+              return (
+                <line key={i} x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y}
+                  stroke={systemColors[e.run]} strokeWidth={faded ? 0.6 : 1.4} opacity={faded ? 0.12 : 0.7} />
+              );
+            })}
+            {/* nodes */}
+            {nodes.map(n => {
+              const p = positions.pos[n.code];
+              const faded = highlightRun && !n.runs.includes(highlightRun);
+              if (n.isBench) {
+                return (
+                  <g key={n.code} onMouseEnter={() => setHover(n)} onMouseLeave={() => setHover(null)} style={{ cursor: 'pointer' }}>
+                    <rect x={p.x - 7} y={p.y - 7} width={14} height={14} fill="var(--accent)" stroke="var(--ink)" strokeWidth={1.5} transform={`rotate(45 ${p.x} ${p.y})`} opacity={faded ? 0.25 : 1} />
+                    <text x={p.x} y={p.y - 14} textAnchor="middle" fontFamily="var(--mono)" fontSize={11} fontWeight={600} fill="var(--ink)" opacity={faded ? 0.25 : 1}>BM·{n.code}</text>
+                  </g>
+                );
+              }
+              return (
+                <g key={n.code} onMouseEnter={() => setHover(n)} onMouseLeave={() => setHover(null)} style={{ cursor: 'pointer' }}>
+                  <circle cx={p.x} cy={p.y} r={n.shared ? 5 : 3.5}
+                    fill={n.shared ? 'var(--bg)' : systemColors[n.runs[0]]}
+                    stroke={n.shared ? 'var(--ink)' : systemColors[n.runs[0]]}
+                    strokeWidth={n.shared ? 1.8 : 0.8}
+                    opacity={faded ? 0.2 : 1} />
+                  {n.shared && <text x={p.x} y={p.y - 9} textAnchor="middle" fontFamily="var(--mono)" fontSize={9.5} fill="var(--ink-2)" opacity={faded ? 0.25 : 1}>{n.code}</text>}
+                </g>
+              );
+            })}
+          </svg>
+          {hover && (
+            <div className="tip" style={{ left: (positions.pos[hover.code].x / positions.W) * 100 + '%', top: (positions.pos[hover.code].y / positions.H) * 100 + '%', transform: 'translate(-50%, -160%)' }}>
+              <div style={{ fontWeight: 600 }}>{hover.isBench ? '◆ ' : ''}{hover.code}</div>
+              <div>{hover.runs.length > 1 ? `shared · runs ${hover.runs.join(', ')}` : `run ${hover.runs[0]}`}</div>
+            </div>
+          )}
+        </div>
+      </div>
+      {state.showRight && (
+        <div style={{ background: 'var(--bg)', overflow: 'auto' }}>
+          <div className="panel-head" style={{ background: 'var(--bg-2)' }}><span className="title">{t('summary')}</span></div>
+          <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="stat">
+              <div className="lbl">{t('nodes')}</div>
+              <div><span className="readout big">{meta.nCount}</span><span className="readout-u">pts</span></div>
+              <div className="hint">shared: {meta.sharedCount}</div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: 'var(--line)' }}>
+              <window.Stat label="edges" value={meta.eCount} unit="seg" />
+              <window.Stat label="runs" value={data.runs.length} unit="" />
+              <window.Stat label="benches" value={data.benchmarks.length} unit="" />
+              <window.Stat label="systems" value={data.systems.length} unit="" />
+            </div>
+            <div className="panel-head" style={{ margin: '6px 0 0', background: 'var(--bg-2)' }}><span className="title">legend</span></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11, fontFamily: 'var(--mono)' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span style={{ width: 10, height: 10, background: 'var(--accent)', transform: 'rotate(45deg)' }} /> benchmark</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span style={{ width: 10, height: 10, background: 'var(--bg)', border: '1.5px solid var(--ink)', borderRadius: '50%' }} /> shared point</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span style={{ width: 10, height: 10, background: 'var(--accent)', borderRadius: '50%' }} /> regular point</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span style={{ width: 18, height: 2, background: 'var(--accent)' }} /> station segment</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+window.NetworkView = NetworkView;

@@ -1,0 +1,218 @@
+// Profile visualization — hero chart
+// Uses pre-computed station heights from the snapshot (hBack, hFore, hBackZ0, hForeZ0).
+function ProfileView({ state, setState, t }) {
+  const { data, selectedRunId, showGrid, showLabels, showBackPts, showForePts, smoothProfile, showAdjusted } = state;
+  const run = data.runs.find(r => r.id === selectedRunId) || data.runs[0];
+
+  const points = useMemo(() => {
+    if (!run || !Array.isArray(run.stations) || run.stations.length === 0) return [];
+    const pts = [];
+    let cumDist = 0;
+    const first = run.stations[0];
+    const hFirst = showAdjusted ? first.hBack : (first.hBackZ0 != null ? first.hBackZ0 : first.hBack);
+    pts.push({ code: first.from, x: 0, y: hFirst, kind: 'back' });
+    for (const s of run.stations) {
+      cumDist += (s.stLen != null) ? s.stLen : ((s.Db || 0) + (s.Df || 0));
+      const y = showAdjusted ? s.hFore : (s.hForeZ0 != null ? s.hForeZ0 : s.hFore);
+      pts.push({ code: s.to, x: cumDist, y, kind: 'fore' });
+    }
+    return pts.filter(p => p.y != null && isFinite(p.y));
+  }, [run, showAdjusted]);
+
+  const isBench = (code) => data.benchmarks.some(b => b.code === code);
+
+  const chartRef = useRef(null);
+  const [size, setSize] = useState({ w: 1200, h: 600 });
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const ro = new ResizeObserver(entries => {
+      const r = entries[0].contentRect;
+      setSize({ w: Math.max(500, r.width), h: Math.max(300, r.height) });
+    });
+    ro.observe(chartRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const pad = { l: 70, r: 40, t: 30, b: 50 };
+  const hasPoints = points.length >= 2;
+  const xMax = hasPoints ? points[points.length - 1].x : 1;
+  const ys = hasPoints ? points.map(p => p.y) : [0, 1];
+  const yMinRaw = Math.min(...ys), yMaxRaw = Math.max(...ys);
+  const yPad = Math.max(0.2, (yMaxRaw - yMinRaw) * 0.1);
+  const yMin = Math.floor((yMinRaw - yPad) * 10) / 10;
+  const yMax = Math.ceil((yMaxRaw + yPad) * 10) / 10;
+  const xScale = (x) => pad.l + (x / Math.max(xMax, 1e-6)) * (size.w - pad.l - pad.r);
+  const yScale = (y) => pad.t + (1 - (y - yMin) / Math.max(yMax - yMin, 1e-6)) * (size.h - pad.t - pad.b);
+
+  const path = hasPoints ? points.map((p, i) => {
+    const X = xScale(p.x), Y = yScale(p.y);
+    if (!smoothProfile) return `${i === 0 ? 'M' : 'L'}${X},${Y}`;
+    if (i === 0) return `M${X},${Y}`;
+    const prev = points[i - 1];
+    const cx = (xScale(prev.x) + X) / 2;
+    return `C${cx},${yScale(prev.y)} ${cx},${Y} ${X},${Y}`;
+  }).join(' ') : '';
+
+  const xStep = xMax > 500 ? 100 : xMax > 200 ? 50 : xMax > 50 ? 20 : 5;
+  const xTicks = [];
+  for (let x = 0; x <= xMax; x += xStep) xTicks.push(x);
+  const yStep = (yMax - yMin) > 5 ? 1 : 0.5;
+  const yTicks = [];
+  for (let y = Math.ceil(yMin / yStep) * yStep; y <= yMax; y += yStep) yTicks.push(y);
+
+  const [hover, setHover] = useState(null);
+  const onMove = (e) => {
+    if (!hasPoints) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    let best = null, bestD = Infinity;
+    for (const p of points) {
+      const d = Math.abs(xScale(p.x) - mx);
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    setHover(best);
+  };
+
+  const noBench = (data.benchmarks || []).length === 0;
+
+  return (
+    <div className="split-h" style={{ gridTemplateColumns: state.showLeft ? '260px 1fr 300px' : (state.showRight ? '1fr 300px' : '1fr'), gap: 1, background: 'var(--line)' }}>
+      {state.showLeft && <ProfileLeft state={state} setState={setState} t={t} data={data} run={run} />}
+      <div style={{ background: 'var(--bg)', display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
+        <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--line)', background: 'var(--bg-2)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div className="t-label">{t('profileTitle')}</div>
+            <div style={{ fontSize: 16, fontWeight: 500, marginTop: 2 }}>{run ? `${t('profileFor')} ${run.lineId} · ${run.name}` : '—'}</div>
+          </div>
+          <span style={{ flex: 1 }} />
+          <label className="input-row"><input type="checkbox" checked={showGrid} onChange={e => setState({ ...state, showGrid: e.target.checked })} /> <span className="t-label">{t('gridOn')}</span></label>
+          <label className="input-row"><input type="checkbox" checked={showLabels} onChange={e => setState({ ...state, showLabels: e.target.checked })} /> <span className="t-label">{t('labels')}</span></label>
+          <label className="input-row"><input type="checkbox" checked={showBackPts} onChange={e => setState({ ...state, showBackPts: e.target.checked })} /> <span className="t-label">{t('backPts')}</span></label>
+          <label className="input-row"><input type="checkbox" checked={showForePts} onChange={e => setState({ ...state, showForePts: e.target.checked })} /> <span className="t-label">{t('forePts')}</span></label>
+          <label className="input-row"><input type="checkbox" checked={smoothProfile} onChange={e => setState({ ...state, smoothProfile: e.target.checked })} /> <span className="t-label">{t('smooth')}</span></label>
+          <div className="seg-ctl">
+            <button className={!showAdjusted ? 'on' : ''} onClick={() => setState({ ...state, showAdjusted: false })}>{t('z0')}</button>
+            <button className={showAdjusted ? 'on' : ''} onClick={() => setState({ ...state, showAdjusted: true })}>{t('adjusted')}</button>
+          </div>
+        </div>
+        <div ref={chartRef} style={{ flex: 1, minHeight: 0, position: 'relative' }} className={showGrid ? 'graphpaper-fine' : ''} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+          <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
+          {!hasPoints && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 6, color: 'var(--ink-3)', fontFamily: 'var(--mono)', fontSize: 12, textAlign: 'center', padding: 20 }}>
+              <div style={{ fontSize: 28, opacity: 0.4 }}>[ ∅ ]</div>
+              <div>{noBench ? (state.lang === 'ru' ? 'Добавьте репер на вкладке Данные — без него высоты не вычислены.' : 'Add a benchmark on the Data tab — heights cannot be derived without one.') : (state.lang === 'ru' ? 'Нет данных для построения профиля.' : 'No data to plot.')}</div>
+            </div>
+          )}
+          {hasPoints && (
+            <svg className="chart" viewBox={`0 0 ${size.w} ${size.h}`} preserveAspectRatio="none">
+              {showGrid && yTicks.map(y => (
+                <g key={'y'+y}>
+                  <line className="gridline" x1={pad.l} y1={yScale(y)} x2={size.w - pad.r} y2={yScale(y)} strokeDasharray={y % 1 === 0 ? '0' : '2 3'} />
+                  <text className="profile-label" x={pad.l - 8} y={yScale(y) + 3} textAnchor="end">{y.toFixed(1)}</text>
+                </g>
+              ))}
+              {showGrid && xTicks.map(x => (
+                <g key={'x'+x}>
+                  <line className="gridline" x1={xScale(x)} y1={pad.t} x2={xScale(x)} y2={size.h - pad.b} />
+                  <text className="profile-label" x={xScale(x)} y={size.h - pad.b + 14} textAnchor="middle">{x}</text>
+                </g>
+              ))}
+              <line x1={pad.l} y1={pad.t} x2={pad.l} y2={size.h - pad.b} stroke="var(--ink-3)" />
+              <line x1={pad.l} y1={size.h - pad.b} x2={size.w - pad.r} y2={size.h - pad.b} stroke="var(--ink-3)" />
+              <text className="profile-label" x={pad.l - 45} y={pad.t - 10} style={{ fontSize: 10 }}>{t('elevation')}</text>
+              <text className="profile-label" x={size.w - pad.r} y={size.h - pad.b + 34} textAnchor="end" style={{ fontSize: 10 }}>{t('distance')}</text>
+
+              <path d={`${path} L ${xScale(xMax)},${size.h - pad.b} L ${xScale(0)},${size.h - pad.b} Z`} fill="var(--accent-soft)" opacity="0.5" />
+              <path className="profile-line" d={path} />
+
+              {points.map((p, i) => {
+                const back = p.kind === 'back';
+                if (back && !showBackPts) return null;
+                if (!back && !showForePts) return null;
+                const X = xScale(p.x), Y = yScale(p.y);
+                const benchPt = isBench(p.code);
+                if (benchPt) {
+                  return (
+                    <g key={i}>
+                      <rect x={X-5} y={Y-5} width={10} height={10} fill="var(--accent)" stroke="var(--ink)" strokeWidth={1.5} transform={`rotate(45 ${X} ${Y})`} />
+                      {showLabels && <text className="profile-label" x={X} y={Y - 12} textAnchor="middle" style={{ fontWeight: 600, fill: 'var(--ink)' }}>{p.code}</text>}
+                    </g>
+                  );
+                }
+                return (
+                  <g key={i}>
+                    <circle cx={X} cy={Y} r={3.5} className="profile-dot" />
+                    {showLabels && i % 4 === 0 && <text className="profile-label" x={X} y={Y - 9} textAnchor="middle">{p.code}</text>}
+                  </g>
+                );
+              })}
+
+              {hover && (() => {
+                const X = xScale(hover.x), Y = yScale(hover.y);
+                return (
+                  <g>
+                    <line x1={X} y1={pad.t} x2={X} y2={size.h - pad.b} stroke="var(--accent)" strokeDasharray="3 3" />
+                    <circle cx={X} cy={Y} r={6} fill="none" stroke="var(--accent)" strokeWidth={2} />
+                  </g>
+                );
+              })()}
+            </svg>
+          )}
+          {hover && (
+            <div className="tip" style={{ left: xScale(hover.x), top: yScale(hover.y) - 42 }}>
+              <div style={{ fontWeight: 600 }}>{hover.code}{isBench(hover.code) ? ' ◆' : ''}</div>
+              <div>H = {fmt(hover.y, 4)} m</div>
+              <div>D = {fmt(hover.x, 2)} m</div>
+            </div>
+          )}
+        </div>
+      </div>
+      {state.showRight && <ProfileRight state={state} setState={setState} t={t} run={run} points={points} />}
+    </div>
+  );
+}
+
+function ProfileLeft({ state, setState, t, data, run }) {
+  return (
+    <div style={{ background: 'var(--bg)', overflow: 'auto' }}>
+      <div className="panel-head" style={{ background: 'var(--bg-2)' }}><span className="title">{t('runs')}</span></div>
+      {data.runs.map(r => (
+        <div key={r.id} className={`listitem ${run && r.id === run.id ? 'active' : ''}`} onClick={() => setState({ ...state, selectedRunId: r.id })}>
+          <span className="mono" style={{ color: 'var(--ink-3)', fontSize: 10.5 }}>{String(r.index).padStart(2, '0')}</span>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</span>
+          <span className="chip" style={{ fontSize: 9.5 }}>{r.stationCount} ст</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProfileRight({ t, run, points }) {
+  const yVals = points.map(p => p.y);
+  const hasData = yVals.length > 0;
+  const min = hasData ? Math.min(...yVals) : 0;
+  const max = hasData ? Math.max(...yVals) : 0;
+  const range = max - min;
+  return (
+    <div style={{ background: 'var(--bg)', overflow: 'auto' }}>
+      <div className="panel-head" style={{ background: 'var(--bg-2)' }}><span className="title">{t('summary')}</span></div>
+      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="stat">
+          <div className="lbl">range (Hmax - Hmin)</div>
+          <div><span className="readout big">{hasData ? fmt(range, 3) : '—'}</span><span className="readout-u">m</span></div>
+          <div className="hint">Hmin {hasData ? fmt(min, 4) : '—'} · Hmax {hasData ? fmt(max, 4) : '—'}</div>
+        </div>
+        {run && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: 'var(--line)' }}>
+            <window.Stat label="points" value={points.length} unit="pts" />
+            <window.Stat label="length" value={fmt(run.totalLength, 2)} unit="m" />
+            <window.Stat label="closure" value={signed(run.closureMm || 0, 1)} unit="mm" />
+            <window.Stat label="class" value={run.class} unit={run.method} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+window.ProfileView = ProfileView;

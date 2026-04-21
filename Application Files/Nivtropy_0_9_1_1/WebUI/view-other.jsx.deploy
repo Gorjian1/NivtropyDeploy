@@ -1,0 +1,573 @@
+// ---------- Import view ----------
+function ImportView({ state, setState, t }) {
+  const [step, setStep] = useState('drop'); // drop → preview → confirm
+  const [progress, setProgress] = useState(0);
+  const sampleLog = [
+    { t: 'For_DL', from: '46',   Rb: '0.56351', Db: '8.75' },
+    { t: 'Rb',    from: '45',   Rb: '0.66371', Db: '7.19' },
+    { t: 'Rf',    to:   '1000', Rf: '1.29941', Df: '7.38' },
+    { t: 'Rb',    from: '1000', Rb: '1.43671', Db: '6.70' },
+    { t: 'Rf',    to:   '44',   Rf: '0.74811', Df: '5.89' },
+    { t: 'Rb',    from: '44',   Rb: '0.74801', Db: '5.89' },
+    { t: 'Rf',    to:   '1001', Rf: '1.32321', Df: '6.27' },
+    { t: 'Rb',    from: '1001', Rb: '1.42451', Db: '3.76' },
+    { t: 'Rf',    to:   '43',   Rf: '0.89951', Df: '4.04' },
+  ];
+
+  const runImport = () => {
+    setStep('preview');
+    setProgress(0);
+    const id = setInterval(() => {
+      setProgress(p => {
+        if (p >= 100) { clearInterval(id); setStep('confirm'); return 100; }
+        return p + 4;
+      });
+    }, 40);
+  };
+
+  return (
+    <div className="split-h" style={{ gridTemplateColumns: state.showLeft ? '260px 1fr 300px' : '1fr', gap: 1, background: 'var(--line)' }}>
+      {state.showLeft && (
+        <div style={{ background: 'var(--bg)', overflow: 'auto' }}>
+          <div className="panel-head" style={{ background: 'var(--bg-2)' }}><span className="title">recent</span></div>
+          {['push0809.dat','push1609.dat','level_24-08.dat','site-B_closed.csv','control-loop.dat'].map((f, i) => (
+            <div key={f} className={`listitem ${i === 0 ? 'active' : ''}`}>
+              <span style={{ fontFamily: 'var(--mono)', color: 'var(--ink-3)', fontSize: 10 }}>{['20250908','20250916','20250824','20250819','20250811'][i]}</span>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'var(--mono)', fontSize: 11 }}>{f}</span>
+              <span className="chip" style={{ fontSize: 9.5 }}>{[76,45,18,22,31][i]} st</span>
+            </div>
+          ))}
+          <div className="panel-head" style={{ background: 'var(--bg-2)', marginTop: 12 }}><span className="title">formats</span></div>
+          <div style={{ padding: '10px 12px', fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.6, fontFamily: 'var(--mono)' }}>
+            .dat — Trimble DiNi M5<br/>
+            .asc — Leica GSI-16<br/>
+            .csv — manual entry<br/>
+            .nvt — Nivtropy project
+          </div>
+        </div>
+      )}
+      <div style={{ background: 'var(--bg)', display: 'flex', flexDirection: 'column', minWidth: 0, padding: 0 }}>
+        <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)', background: 'var(--bg-2)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div>
+            <div className="t-label">{t('importTitle')}</div>
+            <div style={{ fontSize: 13, fontWeight: 500, marginTop: 2 }}>{t('importHint')}</div>
+          </div>
+          <span style={{ flex: 1 }} />
+          <div className="seg-ctl">
+            <button className={step === 'drop' ? 'on' : ''} onClick={() => setStep('drop')}>1 · source</button>
+            <button className={step === 'preview' ? 'on' : ''} onClick={() => { setStep('preview'); setProgress(60); }}>2 · parse</button>
+            <button className={step === 'confirm' ? 'on' : ''} onClick={() => { setStep('confirm'); setProgress(100); }}>3 · commit</button>
+          </div>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {step === 'drop' && (
+            <div className="graphpaper" style={{ border: '1px dashed var(--line-strong)', padding: '60px 40px', textAlign: 'center', position: 'relative', background: 'var(--bg-2)' }}>
+              <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
+              <div style={{ fontFamily: 'var(--mono)', fontSize: 36, color: 'var(--ink-3)', letterSpacing: '0.2em', marginBottom: 6 }}>[ + ]</div>
+              <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 4, fontWeight: 500 }}>Drop Trimble DiNi (.dat) or CSV here</div>
+              <div className="t-label">or click to browse · max 10 files · up to 50 MB</div>
+              <div style={{ marginTop: 20, display: 'flex', gap: 6, justifyContent: 'center' }}>
+                <button className="btn primary" onClick={() => window.BRIDGE && window.BRIDGE.send('openFile')}>⎘ {state.lang === 'ru' ? 'Открыть файл…' : 'Open file…'}</button>
+                <button className="btn" onClick={runImport}>{state.lang === 'ru' ? 'Из буфера обмена' : 'Paste from clipboard'}</button>
+              </div>
+            </div>
+          )}
+          {step !== 'drop' && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 1, background: 'var(--line)' }}>
+                <window.Stat label="file" value="push0809" unit=".dat" />
+                <window.Stat label="parsed" value={Math.floor(76 * progress / 100)} unit={'/ 76 stn'} />
+                <window.Stat label="size" value="18.4" unit="KB" />
+                <window.Stat label="format" value="M5" unit="DiNi" />
+              </div>
+              <div>
+                <div className="t-label" style={{ marginBottom: 6 }}>parse progress · {progress}%</div>
+                <div className="meter ok"><i style={{ width: progress + '%' }} /></div>
+              </div>
+              <div className="panel" style={{ border: '1px solid var(--line)' }}>
+                <div className="panel-head"><span className="title">raw stream</span><span className="grow" /><span className="chip">Trimble M5</span></div>
+                <div style={{ maxHeight: 240, overflow: 'auto' }}>
+                  <table className="grid">
+                    <thead><tr>
+                      <th>#</th><th>type</th><th>pt</th><th className="num">Rb</th><th className="num">Rf</th><th className="num">D</th>
+                    </tr></thead>
+                    <tbody>
+                      {sampleLog.map((r, i) => (
+                        <tr key={i}>
+                          <td className="num dim">{String(i + 1).padStart(3, '0')}</td>
+                          <td><span className="chip" style={{ fontSize: 9.5 }}>{r.t}</span></td>
+                          <td className="code">{r.from || r.to}</td>
+                          <td className="num">{r.Rb || '—'}</td>
+                          <td className="num">{r.Rf || '—'}</td>
+                          <td className="num dim">{r.Db || r.Df}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+          {step === 'confirm' && (
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => setStep('drop')}>{state.lang === 'ru' ? 'Отмена' : 'Discard'}</button>
+              <button className="btn primary" onClick={() => setState({ ...state, tab: 'data' })}>{state.lang === 'ru' ? 'Применить → Данные' : 'Commit → Data view'}</button>
+            </div>
+          )}
+        </div>
+      </div>
+      {state.showRight && (
+        <div style={{ background: 'var(--bg)', overflow: 'auto' }}>
+          <div className="panel-head" style={{ background: 'var(--bg-2)' }}><span className="title">detected</span></div>
+          <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 11, fontFamily: 'var(--mono)' }}>
+            <KV k="instrument" v="Trimble DiNi 0.3" />
+            <KV k="serial" v="703334" />
+            <KV k="date" v="2025-09-08" />
+            <KV k="start" v="09:14:22" />
+            <KV k="operator" v="М. Горян" />
+            <KV k="method" v="BF · II класс" />
+            <KV k="benchmarks" v="46, 21, 20" />
+            <KV k="loops" v="1 closed" />
+          </div>
+          <div className="panel-head" style={{ background: 'var(--bg-2)', marginTop: 12 }}><span className="title">checks</span></div>
+          <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 11 }}>
+            <Check ok label="file signature" />
+            <Check ok label="station count matches" />
+            <Check ok label="closure within tolerance" />
+            <Check warn label="3 arms > 1.0 m" />
+            <Check ok label="no duplicate codes" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KV({ k, v }) {
+  return (<div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, borderBottom: '1px dashed var(--line)', paddingBottom: 4 }}>
+    <span style={{ color: 'var(--ink-4)' }}>{k}</span>
+    <span style={{ color: 'var(--ink)' }}>{v}</span>
+  </div>);
+}
+function Check({ ok, warn, label }) {
+  return <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <span className={`chip ${ok ? 'ok' : warn ? 'warn' : 'bad'}`} style={{ width: 16, justifyContent: 'center', fontSize: 9.5 }}>{ok ? '✓' : warn ? '!' : '×'}</span>
+    <span>{label}</span>
+  </div>;
+}
+
+// ---------- Design view ----------
+// Reverse problem: given an ALREADY ADJUSTED run (heights / Δh adj), synthesise
+// raw Rb/Rf/Db/Df that reproduce those adjusted Δh on re-processing, all inside
+// the field tolerances (sight length, arm difference, reading range, resolution).
+function DesignView({ state, setState, t }) {
+  const { data } = state;
+  const firstId = data.runs[0] ? data.runs[0].id : null;
+  const [selectedRunId, setSelectedRunId] = useState(firstId);
+  const run = data.runs.find(r => r.id === selectedRunId) || data.runs[0];
+  const startH = run && run.stations && run.stations[0] && run.stations[0].hBack != null
+    ? run.stations[0].hBack
+    : ((data.benchmarks[0] && data.benchmarks[0].height) || 0);
+
+  // Tolerances (II class levelling defaults)
+  const [tol, setTol] = useState({
+    dMin: 3.0, dMax: 50.0,      // sight length (m)
+    armMax: 1.0,                // |Db - Df|  (m)
+    stMin: 6.0, stMax: 100.0,   // station length (m)
+    rMin: 0.15, rMax: 2.95,     // reading range (m) — staff limits
+    rRes: 0.00001,              // reading resolution (m) — 0.01 mm for DiNi 0.3
+  });
+
+  const [method, setMethod] = useState('keepOriginal'); // 'keepOriginal' | 'equalArms' | 'random'
+  const [seed, setSeed] = useState(42);
+
+  // Seeded pseudo-random
+  const rng = useMemo(() => {
+    let s = seed >>> 0;
+    return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x100000000; };
+  }, [seed, method, tol.dMin, tol.dMax, tol.armMax]);
+
+  // Adjusted Δh is already computed upstream (s.dhAdj). Fall back to raw if missing.
+  const adjusted = useMemo(() => {
+    if (!run || !Array.isArray(run.stations)) return [];
+    return run.stations.map((s) => {
+      const rawDh = (s.Rb != null && s.Rf != null) ? (s.Rb - s.Rf) : (s.dh || 0);
+      const targetDh = (s.dhAdj != null) ? s.dhAdj : rawDh;
+      const corr = (s.corr != null) ? s.corr : (targetDh - rawDh);
+      return { ...s, actDh: rawDh, targetDh, corr };
+    });
+  }, [run]);
+
+  // Generate Rb/Rf/Db/Df for each station
+  const generated = useMemo(() => {
+    if (adjusted.length === 0) {
+      return { rows: [], heights: {}, repSum: 0, origSum: 0, repClosureMm: 0, nPass: 0, nWarn: 0, nFail: 0 };
+    }
+    const rounded = (x) => Math.round(x / tol.rRes) * tol.rRes;
+    const rows = adjusted.map((s, idx) => {
+      const origDb = s.Db != null ? s.Db : 20;
+      const origDf = s.Df != null ? s.Df : 20;
+      let Db, Df;
+      if (method === 'keepOriginal') {
+        Db = origDb; Df = origDf;
+      } else if (method === 'equalArms') {
+        const L = Math.min(Math.max(origDb + origDf, tol.stMin), tol.stMax);
+        Db = L / 2; Df = L / 2;
+      } else {
+        const Ltarget = Math.min(Math.max(origDb + origDf, tol.stMin), tol.stMax);
+        const L = Ltarget * (0.9 + rng() * 0.2);
+        const split = 0.5 + (rng() - 0.5) * (tol.armMax / Math.max(L, 0.01)) * 0.9;
+        Db = L * split;
+        Df = L * (1 - split);
+      }
+      Db = Math.min(Math.max(Db, tol.dMin), tol.dMax);
+      Df = Math.min(Math.max(Df, tol.dMin), tol.dMax);
+
+      const dh = s.targetDh;
+      const rbLow = Math.max(tol.rMin, tol.rMin + dh);
+      const rbHigh = Math.min(tol.rMax, tol.rMax + dh);
+      let Rb;
+      if (method === 'keepOriginal' && s.Rb != null && s.Rb >= rbLow - 1e-9 && s.Rb <= rbHigh + 1e-9) {
+        Rb = s.Rb;
+      } else {
+        const jitter = method === 'random' ? rng() : 0.5;
+        Rb = rbLow + (rbHigh - rbLow) * jitter;
+      }
+      Rb = rounded(Rb);
+      let Rf = rounded(Rb - dh);
+      Rf = Math.min(Math.max(Rf, tol.rMin), tol.rMax);
+      const genDh = Rb - Rf;
+
+      const arm = Db - Df;
+      const stLen = Db + Df;
+      const checks = {
+        dbInBeam: Db >= tol.dMin && Db <= tol.dMax,
+        dfInBeam: Df >= tol.dMin && Df <= tol.dMax,
+        armOk:   Math.abs(arm) <= tol.armMax,
+        stLenOk: stLen >= tol.stMin && stLen <= tol.stMax,
+        rbInRange: Rb >= tol.rMin && Rb <= tol.rMax,
+        rfInRange: Rf >= tol.rMin && Rf <= tol.rMax,
+      };
+      const violations = Object.values(checks).filter(v => !v).length;
+      const resDh = genDh - s.targetDh;
+      const ok = violations === 0 && Math.abs(resDh) <= tol.rRes * 2;
+      const warn = !ok && violations === 0;
+
+      return { ...s, Db, Df, arm, stLen, Rb, Rf, genDh, resDh, checks, violations, ok, warn };
+    });
+
+    // Re-process the generated readings from scratch to verify closure
+    let h = startH;
+    const heights = rows.length ? { [rows[0].from]: h } : {};
+    rows.forEach(r => { h = h + r.genDh; heights[r.to] = h; });
+    const repSum = rows.reduce((a, r) => a + r.genDh, 0);
+    const origSum = adjusted.reduce((a, r) => a + r.targetDh, 0);
+    const repClosureMm = (repSum - origSum) * 1000;
+
+    const nPass = rows.filter(r => r.ok).length;
+    const nWarn = rows.filter(r => r.warn).length;
+    const nFail = rows.filter(r => !r.ok && !r.warn).length;
+
+    return { rows, heights, repSum, origSum, repClosureMm, nPass, nWarn, nFail };
+  }, [adjusted, method, tol, rng, startH]);
+
+  const setT = (k, v) => setTol(prev => ({ ...prev, [k]: v }));
+
+  if (!run) {
+    return (
+      <div style={{ background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-3)', fontFamily: 'var(--mono)', fontSize: 12, height: '100%' }}>
+        {state.lang === 'ru' ? 'Загрузите обработанный ход на вкладке Данные для обратной генерации.' : 'Load a processed run on the Data tab to reverse-generate readings.'}
+      </div>
+    );
+  }
+
+  return (
+    <div className="split-h" style={{ gridTemplateColumns: state.showLeft ? '280px 1fr 320px' : (state.showRight ? '1fr 320px' : '1fr'), gap: 1, background: 'var(--line)' }}>
+      {state.showLeft && (
+        <div style={{ background: 'var(--bg)', overflow: 'auto' }}>
+          <div className="panel-head"><span className="title">{t('runs')}</span></div>
+          {data.runs.map((r) => (
+            <div key={r.id} className={`listitem ${r.id === selectedRunId ? 'active' : ''}`} onClick={() => setSelectedRunId(r.id)}>
+              <span className="mono" style={{ color: 'var(--ink-3)', fontSize: 10.5 }}>{String(r.index).padStart(2, '0')}</span>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.lineId}</span>
+              <span className="chip" style={{ fontSize: 9.5 }}>{r.stationCount} ст</span>
+            </div>
+          ))}
+
+          <div className="panel-head"><span className="title">{t('tolerances')}</span><span className="grow" /><span className="chip acc" style={{ fontSize: 9.5 }}>II кл.</span></div>
+          <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <TolInput label={t('dMin')} value={tol.dMin} step={0.5} unit="m" onChange={v => setT('dMin', v)} />
+            <TolInput label={t('dMax')} value={tol.dMax} step={1} unit="m" onChange={v => setT('dMax', v)} />
+            <TolInput label={t('armMax')} value={tol.armMax} step={0.1} unit="m" onChange={v => setT('armMax', v)} />
+            <TolInput label={t('stMin')} value={tol.stMin} step={1} unit="m" onChange={v => setT('stMin', v)} />
+            <TolInput label={t('stMax')} value={tol.stMax} step={5} unit="m" onChange={v => setT('stMax', v)} />
+            <TolInput label={t('rMin')} value={tol.rMin} step={0.05} unit="m" onChange={v => setT('rMin', v)} />
+            <TolInput label={t('rMax')} value={tol.rMax} step={0.05} unit="m" onChange={v => setT('rMax', v)} />
+            <TolInput label={t('rRes')} value={tol.rRes * 1000} step={0.005} unit="mm" onChange={v => setT('rRes', v / 1000)} />
+          </div>
+
+          <div className="panel-head"><span className="title">{t('generation')}</span></div>
+          <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div>
+              <label className="t-label" style={{ display: 'block', marginBottom: 5 }}>{t('genMethod')}</label>
+              <div className="seg-ctl" style={{ width: '100%' }}>
+                <button className={method === 'keepOriginal' ? 'on' : ''} onClick={() => setMethod('keepOriginal')} style={{ flex: 1, padding: '5px 4px', fontSize: 9.5 }}>orig D</button>
+                <button className={method === 'equalArms' ? 'on' : ''} onClick={() => setMethod('equalArms')} style={{ flex: 1, padding: '5px 4px', fontSize: 9.5 }}>equal</button>
+                <button className={method === 'random' ? 'on' : ''} onClick={() => setMethod('random')} style={{ flex: 1, padding: '5px 4px', fontSize: 9.5 }}>random</button>
+              </div>
+            </div>
+            <TolInput label={t('seed')} value={seed} step={1} unit="№" onChange={v => setSeed(Math.round(v))} />
+            <button className="btn primary" onClick={() => setSeed(s => s + 1)} style={{ width: '100%', justifyContent: 'center' }}>↻ {t('regenerate')}</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ background: 'var(--bg)', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--line-strong)', background: 'var(--bg-2)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div className="t-label">{t('designTitle')}</div>
+            <div style={{ fontSize: 13, fontWeight: 500, marginTop: 2 }}>{run.lineId} · {run.name}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-3)', marginTop: 4, fontFamily: 'var(--mono)', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <span className="chip acc" style={{ fontSize: 9.5 }}>IN · adj Δh / H</span>
+              <span>→</span>
+              <span className="chip" style={{ fontSize: 9.5, borderColor: 'var(--accent-2)', color: 'var(--ink)', background: 'var(--accent-2-soft)' }}>OUT · raw Rb Rf Db Df</span>
+              <span style={{ color: 'var(--ink-4)' }}>{t('designSubtitle')}</span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <span className="chip ok">{t('passed')}: {generated.nPass}</span>
+            {generated.nWarn > 0 && <span className="chip warn">{t('rowWarn')}: {generated.nWarn}</span>}
+            {generated.nFail > 0 && <span className="chip bad">{t('failed')}: {generated.nFail}</span>}
+          </div>
+          <button className="btn">{t('exportDat')}</button>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+          <table className="grid">
+            <thead><tr>
+              <th className="num">№</th>
+              <th>{t('from')}</th><th>{t('to')}</th>
+              <th className="num">{t('targetDh')} (m)</th>
+              <th className="num">Rb (m)</th>
+              <th className="num">Rf (m)</th>
+              <th className="num">{t('genDh')} (m)</th>
+              <th className="num">{t('resDh')} (mm)</th>
+              <th className="num">Db</th>
+              <th className="num">Df</th>
+              <th className="num">{t('arm')}</th>
+              <th>{t('verdict')}</th>
+            </tr></thead>
+            <tbody>
+              {generated.rows.map(r => {
+                const armCls = Math.abs(r.arm) > tol.armMax ? 'bad' : (Math.abs(r.arm) > tol.armMax * 0.7 ? 'warn' : '');
+                const rowChip = r.ok ? 'ok' : (r.warn ? 'warn' : 'bad');
+                return (
+                  <tr key={r.i}>
+                    <td className="num dim">{String(r.i).padStart(3, '0')}</td>
+                    <td className="code">{r.from}</td>
+                    <td className="code">{r.to}</td>
+                    <td className="num dim">{signed(r.targetDh, 5)}</td>
+                    <td className="num">{fmt(r.Rb, 5)}</td>
+                    <td className="num">{fmt(r.Rf, 5)}</td>
+                    <td className="num" style={{ fontWeight: 500 }}>{signed(r.genDh, 5)}</td>
+                    <td className={`num ${Math.abs(r.resDh) > tol.rRes * 2 ? 'bad' : ''}`}>{signed(r.resDh * 1000, 3)}</td>
+                    <td className="num">{fmt(r.Db, 2)}</td>
+                    <td className="num">{fmt(r.Df, 2)}</td>
+                    <td className={`num ${armCls}`}>{signed(r.arm, 2)}</td>
+                    <td><span className={`chip ${rowChip}`} style={{ fontSize: 9.5 }}>{r.ok ? t('rowOk') : (r.warn ? t('rowWarn') : t('rowFail'))}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {state.showRight && (
+        <div style={{ background: 'var(--bg)', overflow: 'auto' }}>
+          <div className="panel-head"><span className="title">{t('reprocessCheck')}</span></div>
+          <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="stat">
+              <div className="lbl">{t('reproduced')} ΣΔh</div>
+              <div><span className="readout big">{signed(generated.repSum, 5)}</span><span className="readout-u">m</span></div>
+              <div className="hint">target {signed(generated.origSum, 5)} m</div>
+            </div>
+            <div className="stat">
+              <div className="lbl">{t('residual')} · closure</div>
+              <div><span className={`readout ${Math.abs(generated.repClosureMm) < 0.5 ? 'ok' : 'bad'}`}>{signed(generated.repClosureMm, 3)}</span><span className="readout-u">mm</span></div>
+              <div className="hint">limit ±{(tol.rRes * 1000 * run.stationCount).toFixed(2)} mm (accumulated quant.)</div>
+            </div>
+            <div className="panel-head" style={{ margin: '6px 0 0', padding: '6px 10px' }}><span className="title">{t('totalChecks')}</span></div>
+            <CheckRow label={t('passed')} value={generated.nPass} total={generated.rows.length} cls="ok" />
+            <CheckRow label={t('rowWarn')} value={generated.nWarn} total={generated.rows.length} cls="warn" />
+            <CheckRow label={t('failed')} value={generated.nFail} total={generated.rows.length} cls="bad" />
+
+            <div className="panel-head" style={{ margin: '6px 0 0', padding: '6px 10px' }}><span className="title">нарушения</span></div>
+            <div style={{ fontSize: 10.5, fontFamily: 'var(--mono)', color: 'var(--ink-3)', display: 'flex', flexDirection: 'column', gap: 5, lineHeight: 1.4 }}>
+              {generated.rows.filter(r => !r.ok && !r.warn).slice(0, 6).map(r => (
+                <div key={r.i} style={{ borderLeft: '2px solid var(--bad)', paddingLeft: 6 }}>
+                  <span style={{ color: 'var(--ink-2)' }}>ст. {String(r.i).padStart(3, '0')} · {r.from}→{r.to}</span><br/>
+                  {!r.checks.armOk && <>• arm |{r.arm.toFixed(2)}| &gt; {tol.armMax}<br/></>}
+                  {(!r.checks.rbInRange || !r.checks.rfInRange) && <>• reading out of staff<br/></>}
+                  {(!r.checks.dbInBeam || !r.checks.dfInBeam) && <>• sight out of beam<br/></>}
+                  {!r.checks.stLenOk && <>• station length out of range<br/></>}
+                  {Math.abs(r.resDh) > tol.rRes * 2 && <>• residual {(r.resDh * 1000).toFixed(3)} mm</>}
+                </div>
+              ))}
+              {generated.nFail === 0 && <span style={{ color: 'var(--good)' }}>✓ все станции в допуске</span>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TolInput({ label, value, step, unit, onChange }) {
+  return (
+    <div>
+      <label className="t-label" style={{ display: 'block', marginBottom: 3 }}>{label} <span style={{ color: 'var(--ink-4)', textTransform: 'none', letterSpacing: 0 }}>· {unit}</span></label>
+      <input type="number" step={step} value={value} onChange={e => onChange(parseFloat(e.target.value) || 0)} style={{ width: '100%' }} />
+    </div>
+  );
+}
+
+function CheckRow({ label, value, total, cls }) {
+  const pct = total ? (value / total) * 100 : 0;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '4px 0' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+        <span style={{ color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 10 }}>{label}</span>
+        <span className="mono" style={{ color: 'var(--ink)', fontWeight: 500 }}>{value} / {total}</span>
+      </div>
+      <div className={`meter ${cls}`}><i style={{ width: pct + '%' }} /></div>
+    </div>
+  );
+}
+
+// ---------- Settings view ----------
+function SettingsView({ state, setState, t }) {
+  const s = state.settings;
+  const set = (k, v) => setState({ ...state, settings: { ...s, [k]: v } });
+  return (
+    <div style={{ background: 'var(--bg-3)', overflow: 'auto', padding: 24, display: 'flex', justifyContent: 'center' }}>
+      <div style={{ width: '100%', maxWidth: 900, display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div>
+          <div className="t-label">{t('settingsTitle')}</div>
+          <h2 style={{ margin: '4px 0 0', fontSize: 20, fontWeight: 600, letterSpacing: '0.02em' }}>Project preferences</h2>
+        </div>
+
+        <Section title={t('appearance')} sub={state.lang === 'ru' ? 'Тема · плотность · язык' : 'Theme · density · language'}>
+          <ToggleField label={t('theme')}>
+            <div className="seg-ctl">
+              <button className={state.theme === 'light' ? 'on' : ''} onClick={() => setState({ ...state, theme: 'light' })}>☀ {t('light')}</button>
+              <button className={state.theme === 'dark' ? 'on' : ''} onClick={() => setState({ ...state, theme: 'dark' })}>☾ {t('dark')}</button>
+            </div>
+          </ToggleField>
+          <ToggleField label={t('density')}>
+            <div className="seg-ctl">
+              <button className={state.density === 'compact' ? 'on' : ''} onClick={() => setState({ ...state, density: 'compact' })}>{t('compact')}</button>
+              <button className={state.density === 'comfy' ? 'on' : ''} onClick={() => setState({ ...state, density: 'comfy' })}>{t('comfy')}</button>
+            </div>
+          </ToggleField>
+          <ToggleField label={t('lang')}>
+            <div className="seg-ctl">
+              <button className={state.lang === 'ru' ? 'on' : ''} onClick={() => setState({ ...state, lang: 'ru' })}>RU</button>
+              <button className={state.lang === 'en' ? 'on' : ''} onClick={() => setState({ ...state, lang: 'en' })}>EN</button>
+            </div>
+          </ToggleField>
+          <ToggleField label={state.lang === 'ru' ? 'Прицел-ретикль' : 'Crosshair reticle'}>
+            <div className="seg-ctl">
+              <button className={!state.reticle ? 'on' : ''} onClick={() => setState({ ...state, reticle: false })}>off</button>
+              <button className={state.reticle ? 'on' : ''} onClick={() => setState({ ...state, reticle: true })}>on</button>
+            </div>
+          </ToggleField>
+          <InfoRow k={state.lang === 'ru' ? 'Шрифт · числа' : 'Font · numbers'} v="JetBrains Mono" />
+        </Section>
+
+        <Section title={t('quality')} sub="Field tolerances and validation thresholds">
+          <Field label={t('tolMinBeam')} unit="m" value={s.minBeam} onChange={v => set('minBeam', v)} step={0.1} />
+          <Field label={t('tolMaxBeam')} unit="m" value={s.maxBeam} onChange={v => set('maxBeam', v)} step={0.5} />
+          <Field label={t('tolMinStation')} unit="m" value={s.minStation} onChange={v => set('minStation', v)} step={0.1} />
+          <Field label="Max arm diff." unit="m" value={s.maxArm} onChange={v => set('maxArm', v)} step={0.1} />
+          <Field label="Closure coef. (II cls)" unit="mm/√km" value={s.closureCoef} onChange={v => set('closureCoef', v)} step={0.1} />
+          <Field label="Min height decimals" unit="digits" value={s.minDigits} onChange={v => set('minDigits', v)} step={1} />
+        </Section>
+
+        <Section title={t('formatting')} sub="Display formatting for numbers">
+          <Field label={t('decPlacesH')} unit="digits" value={s.decH} onChange={v => set('decH', v)} step={1} />
+          <Field label={t('decPlacesDh')} unit="digits" value={s.decDh} onChange={v => set('decDh', v)} step={1} />
+          <Field label="Distance decimals" unit="digits" value={s.decDist} onChange={v => set('decDist', v)} step={1} />
+          <FieldSelect label="Heights unit" value={s.unit} onChange={v => set('unit', v)} options={['meters', 'feet', 'mm']} />
+          <FieldSelect label="Angle unit" value={s.angleUnit} onChange={v => set('angleUnit', v)} options={['degrees', 'gons', 'mils']} />
+          <FieldSelect label="CSV separator" value={s.csvSep} onChange={v => set('csvSep', v)} options={['comma', 'semicolon', 'tab']} />
+        </Section>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="btn" onClick={() => setState({ ...state, settings: window.DEFAULT_SETTINGS || state.settings })}>
+            {state.lang === 'ru' ? 'По умолчанию' : 'Reset defaults'}
+          </button>
+          <button className="btn primary" onClick={() => {
+            try { localStorage.setItem('nivtropy-settings', JSON.stringify(state.settings)); } catch(e) {}
+          }}>
+            {state.lang === 'ru' ? 'Сохранить' : 'Save preferences'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToggleField({ label, children }) {
+  return (
+    <div style={{ padding: '10px 14px', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+      <span style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function Section({ title, sub, children }) {
+  return (
+    <div className="panel" style={{ background: 'var(--bg)', border: '1px solid var(--line)' }}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', background: 'var(--bg-2)' }}>
+        <div className="t-label">{title}</div>
+        {sub && <div style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 2 }}>{sub}</div>}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: 'var(--line)' }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, unit, step }) {
+  return (
+    <div style={{ padding: '10px 14px', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+      <span style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{label}</span>
+      <div className="input-row">
+        <input type="number" step={step} value={value} onChange={e => onChange(parseFloat(e.target.value) || 0)} style={{ width: 84, textAlign: 'right' }} />
+        <span className="t-label" style={{ width: 34 }}>{unit}</span>
+      </div>
+    </div>
+  );
+}
+function FieldSelect({ label, value, onChange, options }) {
+  return (
+    <div style={{ padding: '10px 14px', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+      <span style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{label}</span>
+      <select value={value} onChange={e => onChange(e.target.value)}>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+function InfoRow({ k, v }) {
+  return (
+    <div style={{ padding: '10px 14px', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+      <span style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{k}</span>
+      <span className="mono" style={{ color: 'var(--ink-3)', fontSize: 11 }}>{v}</span>
+    </div>
+  );
+}
+
+Object.assign(window, { ImportView, DesignView, SettingsView });

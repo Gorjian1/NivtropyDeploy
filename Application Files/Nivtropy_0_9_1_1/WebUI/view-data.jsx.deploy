@@ -1,0 +1,271 @@
+// Data view: runs list / benchmarks / stations table / closure + height-entry panel
+function DataView({ state, setState, t }) {
+  const { data, selectedRunId } = state;
+  const run = data.runs.find(r => r.id === selectedRunId) || data.runs[0];
+  const rows = run ? run.stations : [];
+
+  const isBench = (code) => data.benchmarks.some(b => b.code === code);
+  const closureOk = run && Math.abs(run.closureMm || 0) <= (run.toleranceMm || 0);
+
+  const [searchQ, setSearchQ] = useState('');
+  const filteredRows = searchQ ? rows.filter(r => (r.from || '').includes(searchQ) || (r.to || '').includes(searchQ)) : rows;
+
+  return (
+    <div className="split-h" style={{ gridTemplateColumns: state.showLeft ? '260px 1fr 320px' : (state.showRight ? '1fr 320px' : '1fr'), gap: 1, background: 'var(--line)' }}>
+      {state.showLeft && <LeftPanel state={state} setState={setState} t={t} data={data} run={run} />}
+
+      <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg)', minWidth: 0 }}>
+        <RunHeader run={run} data={data} state={state} setState={setState} t={t} />
+        <div className="panel" style={{ border: 0, flex: 1, minHeight: 0 }}>
+          <div className="panel-head">
+            <span className="title">{t('stations')} · {run ? run.name : '—'}</span>
+            <span className="chip">{rows.length} {t('stationsUnit')}</span>
+            <span className="grow" />
+            <input type="text" placeholder={t('search')} value={searchQ} onChange={e => setSearchQ(e.target.value)} style={{ width: 180 }} />
+          </div>
+          <div className="panel-body">
+            <table className="grid grid-journal">
+              <thead>
+                <tr>
+                  <th style={{ width: 40 }}>№</th>
+                  <th style={{ width: 90 }}>{t('point')}</th>
+                  <th className="num">{t('rb')}, {t('m')}</th>
+                  <th className="num">{t('rf')}, {t('m')}</th>
+                  <th className="num">{t('stLen')}, {t('m')}</th>
+                  <th className="num">{t('dh')}, {t('m')}</th>
+                  <th className="num">{t('corr')}, {t('m')}</th>
+                  <th className="num">{t('adh')}, {t('m')}</th>
+                  <th className="num">Z₀, {t('m')}</th>
+                  <th className="num">Z, {t('m')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.map((r, idx) => (
+                  <tr key={idx}>
+                    <td className="dim">{r.i}</td>
+                    <td className="stackcell">
+                      <div className={`code ${isBench(r.from) ? 'bench' : ''}`}>{isBench(r.from) && <span style={{ color: 'var(--accent)', marginRight: 4 }}>◆</span>}{r.from || '—'}</div>
+                      <div className="cell-sep" />
+                      <div className={`code ${isBench(r.to) ? 'bench' : ''}`}>{isBench(r.to) && <span style={{ color: 'var(--accent)', marginRight: 4 }}>◆</span>}{r.to || '—'}</div>
+                    </td>
+                    <td className="num">{fmt(r.Rb, 4)}</td>
+                    <td className="num">{fmt(r.Rf, 4)}</td>
+                    <td className="num">{fmt(r.stLen, 2)}</td>
+                    <td className="num" style={{ color: 'var(--accent)' }}>{signed(r.dh, 4)}</td>
+                    <td className="num dim">{(r.corrMode === 'none' || r.corr == null || Math.abs(r.corr) < 1e-9) ? '—' : signed(r.corr, 5)}</td>
+                    <td className="num">{signed(r.dhAdj, 4)}</td>
+                    <td className="num stackcell">
+                      <div>{fmt(r.hBackZ0, 4)}</div>
+                      <div className="cell-sep" />
+                      <div>{fmt(r.hForeZ0, 4)}</div>
+                    </td>
+                    <td className="num stackcell">
+                      <div className={r.isBackKnown ? 'known' : ''}>{fmt(r.hBack, 4)}</div>
+                      <div className="cell-sep" />
+                      <div className={r.isForeKnown ? 'known' : ''}>{fmt(r.hFore, 4)}</div>
+                    </td>
+                  </tr>
+                ))}
+                {filteredRows.length === 0 && (
+                  <tr><td colSpan={10} className="dim" style={{ textAlign: 'center', padding: '24px 12px' }}>—</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {state.showRight && <RightPanel run={run} data={data} t={t} closureOk={closureOk} state={state} setState={setState} />}
+    </div>
+  );
+}
+
+function RunHeader({ run, data, state, setState, t }) {
+  if (!run) return null;
+  return (
+    <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--line)', background: 'var(--bg-2)', display: 'flex', gap: 14, alignItems: 'center' }}>
+      <div>
+        <div className="t-label">{t('tab_data')} · {run.lineId}</div>
+        <div style={{ fontSize: 16, fontWeight: 500, marginTop: 2 }}>{run.name}</div>
+      </div>
+      <div style={{ flex: 1 }} />
+      <div className="input-row">
+        <span className="t-label">{t('method')}</span>
+        <select defaultValue={run.method}><option>BF</option><option>FB</option></select>
+      </div>
+      <div className="input-row">
+        <span className="t-label">{t('class')}</span>
+        <select defaultValue={run.class}>
+          <option>I</option><option>II</option><option>III</option><option>IV</option>
+        </select>
+      </div>
+      <div className="input-row">
+        <span className="t-label">{t('adjMode')}</span>
+        <div className="seg-ctl">
+          <button className={state.adjMode === 'none' ? 'on' : ''} onClick={() => { setState({ ...state, adjMode: 'none' }); window.BRIDGE && window.BRIDGE.send('setAdjustmentMode', { mode: 'none' }); }}>{t('z0')}</button>
+          <button className={state.adjMode === 'local' ? 'on' : ''} onClick={() => { setState({ ...state, adjMode: 'local' }); window.BRIDGE && window.BRIDGE.send('setAdjustmentMode', { mode: 'local' }); }}>{t('local')}</button>
+          <button className={state.adjMode === 'network' ? 'on' : ''} onClick={() => { setState({ ...state, adjMode: 'network' }); window.BRIDGE && window.BRIDGE.send('setAdjustmentMode', { mode: 'network' }); }}>{t('network')}</button>
+        </div>
+      </div>
+      <button className="btn" onClick={() => setState({ ...state, tab: 'profile' })}>◧ {t('openProfile')}</button>
+      <button className="btn primary" onClick={() => window.BRIDGE && window.BRIDGE.send('exportCsv')}>{t('export')}</button>
+    </div>
+  );
+}
+
+function LeftPanel({ state, setState, t, data, run }) {
+  return (
+    <div style={{ background: 'var(--bg)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div className="panel" style={{ border: 0, borderBottom: '1px solid var(--line)', flex: '0 0 auto' }}>
+        <div className="panel-head"><span className="title">{t('runs')}</span><span className="grow" /><span className="chip">{data.runs.length}</span></div>
+        <div>
+          {data.runs.map(r => (
+            <div key={r.id} className={`listitem ${run && r.id === run.id ? 'active' : ''}`} onClick={() => setState({ ...state, selectedRunId: r.id })}>
+              <span className="mono" style={{ color: 'var(--ink-3)', fontSize: 10.5 }}>{String(r.index).padStart(2, '0')}</span>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</span>
+              <span className="chip" style={{ fontSize: 9.5 }}>{r.class}</span>
+              <span className="mono" style={{ fontSize: 10, color: r.closureMm != null && Math.abs(r.closureMm) <= (r.toleranceMm || 0) ? 'var(--good)' : 'var(--bad)' }}>
+                {signed(r.closureMm || 0, 1)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="panel" style={{ border: 0, borderBottom: '1px solid var(--line)', flex: '0 0 auto' }}>
+        <div className="panel-head"><span className="title">{t('systems')}</span></div>
+        <div>
+          {data.systems.map(s => (
+            <div key={s.id} className="listitem">
+              <span style={{ width: 8, height: 8, background: s.color === 'cyan' ? 'var(--accent)' : s.color === 'amber' ? 'var(--accent-2)' : 'var(--violet)' }} />
+              <span style={{ flex: 1 }}>{s.name}</span>
+              <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)' }}>{(s.runIndexes || []).join(',')}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="panel" style={{ border: 0, flex: 1, minHeight: 0 }}>
+        <div className="panel-head"><span className="title">{t('sharedPts')}</span><span className="grow" /><span className="chip">{data.sharedPoints.length}</span></div>
+        <div className="panel-body">
+          {data.sharedPoints.length === 0 && <div className="dim" style={{ padding: '6px 10px', fontSize: 11 }}>—</div>}
+          {data.sharedPoints.map(sp => {
+            const linked = sp.enabled !== false;
+            return (
+              <div key={sp.code} className="listitem" style={{ gap: 6 }}>
+                <span className="mono" style={{ fontWeight: 600, minWidth: 36 }}>{sp.code}</span>
+                <span className="chip" style={{ fontSize: 9.5 }}>{(sp.runs || []).join('+')} ход</span>
+                <span style={{ flex: 1 }} />
+                <button
+                  className={`btn tiny ${linked ? 'primary' : 'ghost'}`}
+                  title={linked ? (state.lang === 'ru' ? 'Разъединить' : 'Unlink') : (state.lang === 'ru' ? 'Связать' : 'Link')}
+                  onClick={() => window.BRIDGE && window.BRIDGE.send('setSharedPoint', { code: sp.code, enabled: !linked })}
+                  style={{ fontSize: 10, padding: '2px 6px' }}
+                >
+                  {linked ? '⛓' : '✕'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RightPanel({ run, data, t, closureOk, state, setState }) {
+  const [newCode, setNewCode] = useState('');
+  const [newH, setNewH] = useState('');
+
+  const addBenchmark = () => {
+    const code = (newCode || '').trim();
+    const h = Number((newH || '').replace(',', '.'));
+    if (!code || !isFinite(h)) return;
+    if (window.BRIDGE) window.BRIDGE.send('setKnownHeight', { code, height: h });
+    setNewCode(''); setNewH('');
+  };
+
+  const removeBenchmark = (code) => {
+    if (window.BRIDGE) window.BRIDGE.send('clearKnownHeight', { code });
+  };
+
+  const pct = run ? Math.min(100, Math.abs(run.closureMm || 0) / (run.toleranceMm || 1) * 100) : 0;
+
+  return (
+    <div style={{ background: 'var(--bg)', overflow: 'auto' }}>
+      <div className="panel-head" style={{ background: 'var(--bg-2)', borderBottom: '1px solid var(--line)' }}>
+        <span className="title">◆ {t('benchmarks')}</span>
+        <span className="grow" />
+        <span className="chip">{data.benchmarks.length}</span>
+      </div>
+      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input type="text" placeholder={t('pointCode')} value={newCode} onChange={e => setNewCode(e.target.value)} style={{ flex: 1 }} />
+          <input type="text" placeholder={t('enterHeight')} value={newH} onChange={e => setNewH(e.target.value)} style={{ width: 100 }} onKeyDown={e => { if (e.key === 'Enter') addBenchmark(); }} />
+          <button className="btn tiny primary" onClick={addBenchmark}>+</button>
+        </div>
+        <div style={{ border: '1px solid var(--line)', maxHeight: 220, overflow: 'auto' }}>
+          {data.benchmarks.length === 0 && <div className="dim" style={{ padding: 10, fontSize: 11 }}>—</div>}
+          {data.benchmarks.map(b => (
+            <div key={b.code} className="listitem">
+              <span className="mono" style={{ color: 'var(--accent)', minWidth: 40 }}>{b.code}</span>
+              <span className="num" style={{ flex: 1 }}>{fmt(b.height, 4)} m</span>
+              <button className="btn tiny ghost" onClick={() => removeBenchmark(b.code)} title={t('removeBench')}>×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {run && (
+        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10, borderTop: '1px solid var(--line)' }}>
+          <div className="stat" style={{ position: 'relative' }}>
+            <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
+            <div className="lbl">{t('closure')} fh</div>
+            <div>
+              <span className={`readout big ${closureOk ? 'ok' : 'bad'}`}>{signed(run.closureMm || 0, 1)}</span>
+              <span className="readout-u">{t('mm')}</span>
+            </div>
+            <div className="hint">{t('tolerance')} ±{fmt(run.toleranceMm, 2)} {t('mm')}</div>
+            <div className={`meter ${closureOk ? 'ok' : 'bad'}`}>
+              <i style={{ width: pct + '%' }} />
+            </div>
+            <div className="hint" style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>0</span>
+              <span className={closureOk ? 'chip ok' : 'chip bad'}>{closureOk ? '✓ ' + t('within') : '✕ ' + t('outOf')}</span>
+              <span>±{fmt(run.toleranceMm, 1)}</span>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: 'var(--line)' }}>
+            <Stat label={t('stations')} value={run.stationCount} unit={t('stationsUnit')} />
+            <Stat label={t('length')} value={fmt(run.totalLength, 2)} unit={t('m')} />
+            <Stat label="ΣΔh" value={signed(run.dhSum || 0, 4)} unit={t('m')} />
+            <Stat label={t('class')} value={run.class} unit={t('method')} unitVal={run.method} />
+          </div>
+
+          <div className="panel" style={{ border: '1px solid var(--line)' }}>
+            <div className="panel-head"><span className="title">{t('file')}</span></div>
+            <div style={{ padding: 12, display: 'grid', gridTemplateColumns: 'auto 1fr', rowGap: 6, columnGap: 10, fontFamily: 'var(--mono)', fontSize: 11 }}>
+              <span className="muted">{t('file')}</span><span>{data.project.file}</span>
+              <span className="muted">{t('date')}</span><span>{data.project.date}</span>
+              <span className="muted">{t('device')}</span><span>{data.project.device}</span>
+              <span className="muted">{t('surveyor')}</span><span>{data.project.operator}</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, unit, unitVal }) {
+  return (
+    <div style={{ padding: '10px 12px', background: 'var(--bg)' }}>
+      <div className="t-label">{label}</div>
+      <div className="num" style={{ fontSize: 16, marginTop: 2 }}>{value}<span className="muted" style={{ fontSize: 10, marginLeft: 4 }}>{unitVal || unit}</span></div>
+    </div>
+  );
+}
+
+window.DataView = DataView;
+window.Stat = Stat;

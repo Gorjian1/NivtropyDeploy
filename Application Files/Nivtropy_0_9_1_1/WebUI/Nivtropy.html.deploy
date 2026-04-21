@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Nivtropy · Geodetic Levelling</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="bridge.js"></script>
+<script src="data.js"></script>
+<script type="text/babel" src="ui-shared.jsx"></script>
+<script type="text/babel" src="view-data.jsx"></script>
+<script type="text/babel" src="view-profile.jsx"></script>
+<script type="text/babel" src="view-network.jsx"></script>
+<script type="text/babel" src="view-other.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme": "light",
+  "density": "compact",
+  "reticle": false,
+  "lang": "ru"
+}/*EDITMODE-END*/;
+
+const DEFAULT_SETTINGS = window.DEFAULT_SETTINGS = {
+  minBeam: 0.5, maxBeam: 50, minStation: 1.0, maxArm: 1.0,
+  closureCoef: 8.0, minDigits: 4,
+  decH: 4, decDh: 4, decDist: 2,
+  unit: 'meters', angleUnit: 'gons', csvSep: 'comma',
+};
+
+function loadPersist() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('nivtropy-state') || '{}');
+    return { ...TWEAK_DEFAULTS, ...saved };
+  } catch (e) { return TWEAK_DEFAULTS; }
+}
+function loadPersistedSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('nivtropy-settings') || 'null');
+    return saved ? { ...DEFAULT_SETTINGS, ...saved } : DEFAULT_SETTINGS;
+  } catch (e) { return DEFAULT_SETTINGS; }
+}
+
+function App() {
+  const persist = loadPersist();
+  const [state, setState] = useState({
+    tab: 'data',
+    lang: persist.lang,
+    theme: persist.theme,
+    density: persist.density,
+    reticle: persist.reticle || false,
+    showLeft: true,
+    showRight: true,
+    tweaksOpen: false,
+    adjMode: 'local',
+    showAdjusted: false,
+    data: window.SAMPLE_DATA,
+    selectedRunId: 'r-0210',
+    settings: loadPersistedSettings(),
+    // profile view
+    showGrid: true, showLabels: true, showBackPts: true, showForePts: true, smoothProfile: false,
+  });
+  const t = useT(state.lang);
+
+  // persist tweaks
+  useEffect(() => {
+    localStorage.setItem('nivtropy-state', JSON.stringify({
+      lang: state.lang, theme: state.theme, density: state.density, reticle: state.reticle,
+    }));
+  }, [state.lang, state.theme, state.density, state.reticle]);
+
+  // apply theme + density to root
+  useEffect(() => {
+    document.documentElement.dataset.theme = state.theme;
+    document.documentElement.dataset.density = state.density;
+  }, [state.theme, state.density]);
+
+  // C#-bridge: принимаем реальное состояние от хоста и подменяем demo-данные.
+  useEffect(() => {
+    if (!window.BRIDGE) return;
+    const off = window.BRIDGE.onMessage((msg) => {
+      if (msg.type !== 'state') return;
+      const payload = msg.payload;
+      if (!payload || !Array.isArray(payload.runs) || payload.runs.length === 0) return;
+      const adjModeMap = { 0: 'none', 1: 'local', 2: 'network' };
+      setState(s => ({
+        ...s,
+        data: payload,
+        selectedRunId: payload.runs[0].id,
+        adjMode: adjModeMap[payload.adjMode] || s.adjMode,
+      }));
+    });
+    return off;
+  }, []);
+
+  const tabs = [
+    { id: 'data', label: t('tab_data'), num: '01', shortcut: '⌘1' },
+    { id: 'profile', label: t('tab_profile'), num: '02', shortcut: '⌘2' },
+    { id: 'network', label: t('tab_network'), num: '03', shortcut: '⌘3' },
+    { id: 'design', label: t('tab_design'), num: '04', shortcut: '⌘4' },
+    { id: 'import', label: t('tab_import'), num: '05', shortcut: '⌘5' },
+    { id: 'settings', label: t('tab_settings'), num: '06', shortcut: '⌘6' },
+  ];
+
+  // keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey)) {
+        const n = parseInt(e.key);
+        if (n >= 1 && n <= 6) { e.preventDefault(); setState(s => ({ ...s, tab: tabs[n - 1].id })); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [tabs]);
+
+  const run = state.data.runs.find(r => r.id === state.selectedRunId) || state.data.runs[0];
+  const closureMm = run ? (run.closureMm || 0) : 0;
+  const toleranceMm = run ? (run.toleranceMm || 0) : 0;
+  const closureOk = Math.abs(closureMm) <= toleranceMm;
+
+  return (
+    <div className="app">
+      {/* Title bar */}
+      <div className="titlebar">
+        <span className="brand">{t('brand')}</span>
+        <span className="project">{state.data.project.file}</span>
+        <span style={{ color: 'oklch(0.65 0.02 85)' }}>·</span>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 10.5 }}>{state.data.project.date}</span>
+        <span style={{ color: 'oklch(0.65 0.02 85)' }}>·</span>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 10.5 }}>{state.data.project.device}</span>
+        <span className="grow" />
+        <span className="dot" />
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: '#fff' }}>{t('ready')}</span>
+      </div>
+
+      {/* Tabs */}
+      <div className="toolbar">
+        <div className="tabs">
+          {tabs.map(tb => (
+            <button key={tb.id} className={`tab ${state.tab === tb.id ? 'active' : ''}`} onClick={() => setState(s => ({ ...s, tab: tb.id }))}>
+              <span className="num">{tb.num}</span>
+              <span>{tb.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="tools">
+          <button className="btn ghost" title="Open file" onClick={() => window.BRIDGE && window.BRIDGE.send('openFile')}><span style={{ fontFamily: 'var(--mono)' }}>⎘</span> {t('open')}</button>
+          <button className="btn ghost" title="Export CSV" onClick={() => window.BRIDGE && window.BRIDGE.send('exportCsv')}><span style={{ fontFamily: 'var(--mono)' }}>↧</span> {t('export')}</button>
+        </div>
+      </div>
+
+      {/* Main view */}
+      <div style={{ position: 'relative', overflow: 'hidden', minHeight: 0 }}>
+        {state.tab === 'data' && <window.DataView state={state} setState={setState} t={t} />}
+        {state.tab === 'profile' && <window.ProfileView state={state} setState={setState} t={t} />}
+        {state.tab === 'network' && <window.NetworkView state={state} setState={setState} t={t} />}
+        {state.tab === 'design' && <window.DesignView state={state} setState={setState} t={t} />}
+        {state.tab === 'import' && <window.ImportView state={state} setState={setState} t={t} />}
+        {state.tab === 'settings' && <window.SettingsView state={state} setState={setState} t={t} />}
+        {state.reticle && <Reticle />}
+      </div>
+
+      {/* Status bar */}
+      <div className="statusbar">
+        <span className="seg"><span className="lbl">run</span><span className="val">{run ? run.lineId : '—'}</span></span>
+        <span className="seg"><span className="lbl">stations</span><span className="val">{run ? run.stationCount : 0}</span></span>
+        <span className="seg"><span className="lbl">length</span><span className="val">{run ? (run.totalLength || 0).toFixed(2) : '0.00'} m</span></span>
+        <span className="seg"><span className="lbl">closure</span><span className="val" style={{ color: closureOk ? 'var(--good)' : 'var(--bad)' }}>{closureMm > 0 ? '+' : ''}{closureMm.toFixed(1)} mm / ±{toleranceMm.toFixed(1)} mm</span></span>
+        <span className="seg"><span className="lbl">method</span><span className="val">{run ? `${run.method} · ${run.class}` : '—'}</span></span>
+        <span style={{ flex: 1 }} />
+        <span className="seg"><span className="lbl">mode</span><span className="val">{state.adjMode}</span></span>
+        <span className="seg"><span className="lbl">v</span><span className="val">2.4.0</span></span>
+      </div>
+
+    </div>
+  );
+}
+
+function Reticle() {
+  const [pos, setPos] = useState({ x: -100, y: -100 });
+  useEffect(() => {
+    const onMove = (e) => setPos({ x: e.clientX, y: e.clientY });
+    window.addEventListener('mousemove', onMove);
+    return () => window.removeEventListener('mousemove', onMove);
+  }, []);
+  return (
+    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 100 }}>
+      <div style={{ position: 'absolute', top: 0, bottom: 0, left: pos.x, width: 1, background: 'oklch(0.58 0.14 220 / 0.45)' }} />
+      <div style={{ position: 'absolute', left: 0, right: 0, top: pos.y, height: 1, background: 'oklch(0.58 0.14 220 / 0.45)' }} />
+      <div style={{ position: 'absolute', left: pos.x - 18, top: pos.y - 18, width: 36, height: 36, border: '1px solid oklch(0.58 0.14 220 / 0.9)', borderRadius: '50%' }} />
+      <div style={{ position: 'absolute', left: pos.x - 3, top: pos.y - 3, width: 6, height: 6, background: 'oklch(0.58 0.14 220 / 0.9)' }} />
+      <div style={{ position: 'absolute', left: pos.x + 24, top: pos.y + 8, fontFamily: 'var(--mono)', fontSize: 10, color: 'oklch(0.58 0.14 220)', letterSpacing: '0.05em', textShadow: '0 0 6px var(--bg)' }}>
+        x{Math.round(pos.x).toString().padStart(4, '0')} · y{Math.round(pos.y).toString().padStart(4, '0')}
+      </div>
+    </div>
+  );
+}
+
+// wait for babel-transpiled scripts
+(function mount() {
+  if (!window.DataView || !window.ProfileView || !window.NetworkView || !window.ImportView || !window.DesignView || !window.SettingsView) {
+    return setTimeout(mount, 40);
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+})();
+</script>
+</body>
+</html>
