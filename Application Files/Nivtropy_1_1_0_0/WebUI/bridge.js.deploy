@@ -1,0 +1,39 @@
+// Мост между React-UI и C#-хостом (WebView2).
+// Формат сообщений: { type: string, payload?: any }
+(function () {
+  const inWebView2 = !!(window.chrome && window.chrome.webview);
+
+  const listeners = new Set();
+
+  function send(type, payload) {
+    if (!inWebView2) return;
+    window.chrome.webview.postMessage({ type: type, payload: payload });
+  }
+
+  function onMessage(cb) {
+    listeners.add(cb);
+    return function off() { listeners.delete(cb); };
+  }
+
+  if (inWebView2) {
+    window.chrome.webview.addEventListener('message', function (event) {
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object') return;
+      listeners.forEach(function (cb) {
+        try { cb(msg); } catch (e) { console.error('[bridge] listener error', e); }
+      });
+    });
+  }
+
+  window.BRIDGE = {
+    inWebView2: inWebView2,
+    send: send,
+    onMessage: onMessage,
+  };
+
+  // Сигнал C#, что React готов принимать данные. Отложим до монтирования App.
+  window.addEventListener('load', function () {
+    // Небольшая задержка чтобы Babel дотранспилировал все jsx.
+    setTimeout(function () { send('ready'); }, 100);
+  });
+})();
