@@ -1,0 +1,20 @@
+// Nivtropy — initial empty project.
+// Реальные данные приходят через WebBridge (msg.type === 'state') из C#-хоста.
+// Этот файл больше не содержит демо-данных, чтобы production-UI не смешивал
+// боевое состояние с легаси-примером.
+window.EMPTY_PROJECT = {
+  project: { file: '—', date: '—', device: '—', operator: '—' },
+  adjMode: 1, // local
+  benchmarks: [],
+  runs: [],
+  systems: [],
+  sharedPoints: [],
+  validation: { isValid: true, hasWarnings: false, errorCount: 0, warningCount: 0, messages: [], problemStations: [] },
+  importSummary: null,
+};
+
+window.EMPTY_DESIGN_PROJECT = {
+  project: { file: '—', date: '—', device: 'Design import', operator: '—', importedAt: '—' },
+  benchmarks: [],
+  runs: [],
+};
